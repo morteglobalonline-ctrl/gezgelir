@@ -46,7 +46,7 @@ export default function Home() {
   const missingDocs = docs ? docs.items.filter((s) => s.status === "Eksik") : [];
 
   const name = driver?.greeting_name || "Sürücü";
-  const rate = config?.rate_per_km || today?.rate_per_km || 0;
+  const rate = today?.rate_per_km ?? driver?.membership?.level?.rate_per_km ?? 0;
 
   return (
     <motion.div variants={staggerParent} initial={ENTER_INITIAL} animate="animate" className="px-5">
@@ -180,7 +180,7 @@ export default function Home() {
         <QuickMetric icon={Gauge} label="Mevcut Oran" value={`${money(rate)}/km`} />
         <QuickMetric
           icon={Clock3}
-          label="Bekleyen Hakediş"
+          label="Bekleyen Kazanç"
           value={wallet ? money(wallet.pending) : "—"}
           accent="gold"
         />

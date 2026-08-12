@@ -291,7 +291,7 @@ export default function Wallet() {
       </motion.div>
 
       <div className="grid grid-cols-3 gap-3 mt-4">
-        <MiniStat icon={Clock3} label="Bekleyen Hakediş" value={wallet ? money(wallet.pending) : "—"} accent="gold" />
+        <MiniStat icon={Clock3} label="Bekleyen Kazanç" value={wallet ? money(wallet.pending) : "—"} accent="gold" />
         <MiniStat icon={ArrowUpRight} label="Bu Ay Çekilen" value={wallet ? money(wallet.withdrawn_this_month) : "—"} />
         <MiniStat icon={Wallet2} label="Toplam Kazanç" value={wallet ? money(wallet.total_earning) : "—"} />
       </div>

@@ -10,7 +10,7 @@ export function Wordmark({ className = "", style }) {
       alt="GezGelir"
       draggable="false"
       className={`select-none ${className}`}
-      style={{ height: 28, width: "auto", ...style }}
+      style={{ height: 28, width: "auto", maxWidth: "100%", objectFit: "contain", display: "block", ...style }}
     />
   );
 }
@@ -34,7 +34,7 @@ export function LogoFull({ className = "", style }) {
       alt="GezGelir — Hareket Et, Kazan"
       draggable="false"
       className={`select-none ${className}`}
-      style={style}
+      style={{ maxWidth: "100%", objectFit: "contain", display: "block", ...style }}
     />
   );
 }

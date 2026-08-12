@@ -81,8 +81,11 @@ export default function Profile() {
         <div className="flex items-center justify-between mb-3">
           <p className="tracking-label text-[11px] font-700 text-white/55">GEZGELİR ÜYELİĞİN</p>
           {m?.level && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gg-gold/20 px-2.5 py-1 text-[11px] font-700 text-gg-gold">
+            <span className="inline-flex items-center gap-1 rounded-full bg-gg-gold/20 px-2.5 py-1 text-[11px] font-700 text-gg-gold" data-testid="profile-level">
               <BadgeCheck size={12} /> {m.level.label}
+              {m.level.rate_per_km != null && (
+                <span className="text-white/70 font-600 tnum">· {money(m.level.rate_per_km)}/km</span>
+              )}
             </span>
           )}
         </div>

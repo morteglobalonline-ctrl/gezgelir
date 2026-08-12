@@ -178,8 +178,8 @@ export default function Earnings() {
               <p className="font-display font-700 text-[15px] text-gg-ink">
                 Seviye: {current.label}
               </p>
-              <p className="text-[12px] text-gg-ink-2">
-                {next ? `${current.label} sürücüsüsün` : "En üst seviyedesin 🎉"}
+              <p className="text-[12px] font-700 text-gg-gold-600 tnum">
+                {money(current.rate_per_km)}/km kazanç oranı
               </p>
             </div>
           </div>
@@ -191,6 +191,21 @@ export default function Earnings() {
                 {next.label} için {km(next.min_km - totalKm)}
               </span>
             )}
+          </div>
+          <div className="mt-4 pt-4 border-t border-gg-line flex items-center gap-1.5" data-testid="level-progression">
+            {levels.map((lv, i) => (
+              <React.Fragment key={lv.key}>
+                <div className={`flex-1 rounded-xl px-2 py-2 text-center ${i === currentIdx ? "bg-gg-mint" : "bg-gg-canvas"}`}>
+                  <p className={`text-[11px] font-800 tracking-wide ${i === currentIdx ? "text-gg-green-700" : "text-gg-ink-3"}`}>
+                    {lv.label.toUpperCase()}
+                  </p>
+                  <p className={`text-[11.5px] font-700 tnum ${i === currentIdx ? "text-gg-ink" : "text-gg-ink-3"}`}>
+                    {money(lv.rate_per_km)}
+                  </p>
+                </div>
+                {i < levels.length - 1 && <span className="text-gg-ink-3 text-[12px]">→</span>}
+              </React.Fragment>
+            ))}
           </div>
         </motion.div>
       )}

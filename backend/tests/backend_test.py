@@ -702,3 +702,168 @@ class TestPush:
         has_tr_number = bool(_re.search(r"\d+,\d", body))
         assert has_tr_number, f"expected TR-formatted numbers in notification body: {body!r}"
 
+
+# ---------------- ITERATION 5: KAZANÇ TERMINOLOGY + LEVEL RATES ----------------
+class TestKazancTerminology:
+    """The word 'Hakediş' must appear NOWHERE in demo user's /api payloads."""
+
+    def _assert_no_hakedis(self, payload, endpoint):
+        import json as _json
+        s = _json.dumps(payload, ensure_ascii=False)
+        assert "Hakediş" not in s, f"'Hakediş' leaked in {endpoint}: {s[:400]}"
+
+    def test_wallet_transactions_use_kazanc(self, demo_client):
+        r = demo_client.get(f"{BASE_URL}/api/wallet/transactions", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        self._assert_no_hakedis(d, "/api/wallet/transactions")
+        earnings = [t for t in d["items"] if t["type"] == "earning"]
+        assert earnings, "no earning transactions seeded"
+        for t in earnings:
+            assert "Hakediş" not in t["title"]
+            assert "Kazanç" in t["title"], f"expected 'Kazanç' in {t['title']!r}"
+
+    def test_notifications_no_hakedis(self, demo_client):
+        r = demo_client.get(f"{BASE_URL}/api/notifications", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        self._assert_no_hakedis(d, "/api/notifications")
+        # earning-approved notif must be 'Kazancın onaylandı'
+        found = any("Kazancın onaylandı" in n.get("title", "") for n in d["items"])
+        assert found, f"'Kazancın onaylandı' notification not found: {[n.get('title') for n in d['items']]}"
+
+    def test_drive_stop_earning_tx_titled_kazanc(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_kzterm")
+        h = _auth_headers(token)
+        r = requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                          json={"distance_km": 20.0, "duration_sec": 900}, timeout=15)
+        assert r.status_code == 200
+        txs = requests.get(f"{BASE_URL}/api/wallet/transactions", headers=h, timeout=15).json()["items"]
+        # The most recent earning tx (from drive/stop) should be titled 'GezGelir Kazanç'
+        earn = next((t for t in txs if t["type"] == "earning"), None)
+        assert earn is not None
+        assert earn["title"] == "GezGelir Kazanç"
+        assert "Hakediş" not in earn["title"]
+
+    def test_no_hakedis_across_demo_payloads(self, demo_client):
+        for path in ["/api/config", "/api/driver/me",
+                     "/api/trips?range=month", "/api/earnings/summary?range=month",
+                     "/api/earnings/series?range=week", "/api/gamification",
+                     "/api/wallet", "/api/wallet/transactions", "/api/notifications"]:
+            r = demo_client.get(f"{BASE_URL}{path}", timeout=15)
+            assert r.status_code == 200, f"{path} -> {r.status_code}"
+            self._assert_no_hakedis(r.json(), path)
+
+
+class TestLevelRates:
+    """Levels + per-level rate_per_km driving all earning math."""
+
+    def test_config_has_three_levels_with_correct_rates(self, http):
+        d = http.get(f"{BASE_URL}/api/config", timeout=15).json()
+        assert d.get("rate_per_km") == 0.40, f"top rate should be 0.40, got {d.get('rate_per_km')}"
+        assert d["rate_per_km"] != 3.0
+        levels = d["levels"]
+        assert len(levels) == 3
+        expected = [("Bronz", 0.40), ("Gold", 0.50), ("Platinum", 0.60)]
+        for lv, (label, rate) in zip(levels, expected):
+            assert lv["label"] == label
+            assert lv["rate_per_km"] == rate, f"{label} rate = {lv['rate_per_km']}"
+
+    @pytest.mark.parametrize("rng", ["today", "week", "month", "total"])
+    def test_earnings_summary_returns_level_rate(self, demo_client, rng):
+        d = demo_client.get(f"{BASE_URL}/api/earnings/summary?range={rng}", timeout=15).json()
+        assert "level" in d and isinstance(d["level"], dict)
+        assert d["level"].get("rate_per_km") == 0.40
+        assert d["rate_per_km"] == 0.40, f"demo (Bronz) rate must be 0.40, got {d['rate_per_km']}"
+        assert d["rate_per_km"] != 3.0
+
+    def test_driver_me_membership_level_has_rate(self, demo_client):
+        d = demo_client.get(f"{BASE_URL}/api/driver/me", timeout=15).json()
+        lv = d["membership"]["level"]
+        assert lv["label"] == "Bronz"
+        assert lv["rate_per_km"] == 0.40
+
+    def test_gamification_level_has_rate(self, demo_client):
+        d = demo_client.get(f"{BASE_URL}/api/gamification", timeout=15).json()
+        lv = d["level"]
+        assert lv.get("rate_per_km") == 0.40
+        # next level (Gold) should also carry a rate_per_km when present
+        if lv.get("next"):
+            assert lv["next"].get("rate_per_km") == 0.50
+
+    def test_no_endpoint_returns_rate_3(self, demo_client):
+        import json as _json
+        for path in ["/api/config", "/api/driver/me",
+                     "/api/earnings/summary?range=month",
+                     "/api/earnings/summary?range=total",
+                     "/api/gamification"]:
+            r = demo_client.get(f"{BASE_URL}{path}", timeout=15)
+            s = _json.dumps(r.json())
+            # Look for rate_per_km: 3 or 3.0 as a value
+            assert '"rate_per_km": 3.0' not in s and '"rate_per_km": 3,' not in s, \
+                f"legacy 3.0 rate leaked in {path}"
+
+
+class TestEarningMath:
+    """Trip earnings must equal round(eligible_km * user's level rate, 2)."""
+
+    def test_all_trips_earning_matches_bronze_rate(self, demo_client):
+        items = demo_client.get(f"{BASE_URL}/api/trips?range=month", timeout=15).json()["items"]
+        assert items
+        for t in items:
+            # Rate should be present on trip or match Bronz 0.40
+            rate = t.get("rate", 0.40)
+            expected = round(t["eligible_km"] * rate, 2)
+            assert abs(t["earning"] - expected) <= 0.02, \
+                f"trip {t['id']}: earning={t['earning']} expected≈{expected} (km={t['eligible_km']}, rate={rate})"
+            # And rate must be 0.40 for the demo (Bronz)
+            if "rate" in t:
+                assert t["rate"] == 0.40, f"trip rate {t['rate']} != 0.40"
+
+    def test_drive_stop_50km_uses_bronze_rate(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_math50")
+        h = _auth_headers(token)
+        r = requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                          json={"distance_km": 50.0, "duration_sec": 1800}, timeout=15)
+        assert r.status_code == 200
+        trip = r.json()["trip"]
+        # eligible ≈ 50 * 0.97 = 48.5
+        assert abs(trip["eligible_km"] - 48.5) < 0.5
+        expected_earn = round(trip["eligible_km"] * 0.40, 2)
+        assert abs(trip["earning"] - expected_earn) <= 0.02, \
+            f"earning {trip['earning']} != expected {expected_earn}"
+        if "rate" in trip:
+            assert trip["rate"] == 0.40
+
+
+# ---------------- ITERATION 5: NOTIFICATION PREFS ----------------
+class TestNotificationPrefs:
+    def test_get_prefs_default_all_true(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_prefs")
+        h = _auth_headers(token)
+        r = requests.get(f"{BASE_URL}/api/notifications/prefs", headers=h, timeout=15)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert isinstance(d, dict)
+        # All truthy by default
+        for k, v in d.items():
+            if isinstance(v, bool):
+                assert v is True, f"pref {k} default should be true"
+
+    def test_put_prefs_persists(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_prefs2")
+        h = _auth_headers(token)
+        cur = requests.get(f"{BASE_URL}/api/notifications/prefs", headers=h, timeout=15).json()
+        # flip first bool key
+        flip = next((k for k, v in cur.items() if isinstance(v, bool)), None)
+        assert flip is not None
+        payload = {**cur, flip: False}
+        r = requests.put(f"{BASE_URL}/api/notifications/prefs", headers=h,
+                        json=payload, timeout=15)
+        assert r.status_code == 200, r.text
+        after = requests.get(f"{BASE_URL}/api/notifications/prefs", headers=h, timeout=15).json()
+        assert after[flip] is False
+
+    def test_prefs_require_auth(self, http):
+        assert http.get(f"{BASE_URL}/api/notifications/prefs", timeout=15).status_code == 401
+        assert http.put(f"{BASE_URL}/api/notifications/prefs", json={}, timeout=15).status_code == 401

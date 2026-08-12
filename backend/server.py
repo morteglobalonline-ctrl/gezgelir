@@ -144,13 +144,21 @@ class PushUnsubIn(BaseModel):
     endpoint: str
 
 
+class NotifPrefsIn(BaseModel):
+    earning: bool = True
+    withdrawal: bool = True
+    approval: bool = True
+    document: bool = True
+    general: bool = True
+
+
 # ---------------------------------------------------------------------------
 # Config (business rules — configurable / server-driven)
 # ---------------------------------------------------------------------------
 DEFAULT_CONFIG = {
     "id": "gezgelir-config",
     "currency": "TRY",
-    "rate_per_km": 3.00,
+    "rate_per_km": 0.40,
     "eligible_ratio": 0.97,
     "weekly_goal_km": 500,
     "weekly_goal_bonus": 250,
@@ -160,10 +168,9 @@ DEFAULT_CONFIG = {
     "multiplier": {"label": "Hafta Sonu Bonusu", "factor": 1.2, "active": True,
                    "note": "Cumartesi-Pazar kazançların x1,2"},
     "levels": [
-        {"key": "bronze", "label": "Bronz", "min_km": 0},
-        {"key": "silver", "label": "Gümüş", "min_km": 2000},
-        {"key": "gold", "label": "Altın", "min_km": 6000},
-        {"key": "platinum", "label": "Platin", "min_km": 12000},
+        {"key": "bronze", "label": "Bronz", "min_km": 0, "rate_per_km": 0.40},
+        {"key": "gold", "label": "Gold", "min_km": 3000, "rate_per_km": 0.50},
+        {"key": "platinum", "label": "Platinum", "min_km": 8000, "rate_per_km": 0.60},
     ],
     "missions": [
         {"id": "w_km", "title": "Haftalık 500 km", "desc": "Bu hafta 500 km tamamla",
@@ -324,7 +331,22 @@ async def push_to_user(user_id, title, body, icon="bell"):
             pass
 
 
+DEFAULT_NOTIF_PREFS = {"earning": True, "withdrawal": True, "approval": True,
+                       "document": True, "general": True}
+NTYPE_TO_PREF = {"earning": "earning", "withdrawal": "withdrawal",
+                 "approval": "approval", "document": "document",
+                 "bonus": "earning", "info": "general"}
+
+
+async def get_notif_prefs(user_id):
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "notif_prefs": 1})
+    return {**DEFAULT_NOTIF_PREFS, **((u or {}).get("notif_prefs") or {})}
+
+
 async def create_notification(user_id, ntype, title, body, icon="bell"):
+    prefs = await get_notif_prefs(user_id)
+    if not prefs.get(NTYPE_TO_PREF.get(ntype, "general"), True):
+        return
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
         "title": title, "body": body, "icon": icon,
@@ -370,11 +392,11 @@ async def seed_user_data(user_id):
     await db.trips.insert_many(trips)
 
     txs = [
-        ("earning", "GezGelir Hakediş", 1482.00, "Tamamlandı", 1),
-        ("earning", "GezGelir Hakediş", 986.40, "Tamamlandı", 4),
+        ("earning", "GezGelir Kazanç", 148.20, "Tamamlandı", 1),
+        ("earning", "GezGelir Kazanç", 98.64, "Tamamlandı", 4),
         ("withdrawal", "Banka Hesabına Çekim", -3000.00, "Tamamlandı", 6),
         ("bonus", "Haftalık Hedef Bonusu", 250.00, "Tamamlandı", 7),
-        ("earning", "GezGelir Hakediş", 1204.80, "Tamamlandı", 9),
+        ("earning", "GezGelir Kazanç", 120.48, "Tamamlandı", 9),
         ("withdrawal", "Banka Hesabına Çekim", -2500.00, "Tamamlandı", 14),
     ]
     await db.transactions.insert_many([
@@ -401,7 +423,7 @@ async def seed_user_data(user_id):
 
     seed_notifs = [
         ("document", "Belgelerini tamamla", "Ehliyet ve ruhsatını yükleyerek hesabını tam aktif hale getir.", "doc", 0),
-        ("earning", "Hakedişin onaylandı", "84,6 km'lik sürüşünden ₺253,80 hesabına eklendi.", "coins", 0),
+        ("earning", "Kazancın onaylandı", "82,1 km kazandıran mesafeden ₺32,82 hesabına eklendi.", "coins", 0),
         ("approval", "Aracın uygun", "Volkswagen Passat aracın GezGelir için onaylandı.", "check", 1),
         ("withdrawal", "Çekimin tamamlandı", "₺3.000,00 banka hesabına başarıyla aktarıldı.", "wallet", 6),
         ("info", "Hoş geldin! 🎉", "GezGelir'e katıldın. Hareket et, kazanmaya başla.", "spark", 8),
@@ -425,8 +447,15 @@ async def _startup():
         print("Storage init failed:", e)
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
-    if not await db.config.find_one({"id": "gezgelir-config"}):
+    stored_cfg = await db.config.find_one({"id": "gezgelir-config"})
+    if not stored_cfg:
         await db.config.insert_one(dict(DEFAULT_CONFIG))
+    else:
+        levels = stored_cfg.get("levels") or []
+        stale = (stored_cfg.get("rate_per_km") == 3.00) or any("rate_per_km" not in lv for lv in levels)
+        if stale:
+            patch = {k: v for k, v in DEFAULT_CONFIG.items() if k != "id"}
+            await db.config.update_one({"id": "gezgelir-config"}, {"$set": patch})
     # demo user
     demo_email = os.environ.get("DEMO_EMAIL", "demo@gezgelir.com").lower()
     demo_pw = os.environ.get("DEMO_PASSWORD", "demo1234")
@@ -456,6 +485,18 @@ def range_start(key):
     if key == "month":
         return n.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     return datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+
+def level_for(total_km, cfg):
+    level = cfg["levels"][0]
+    for lv in cfg["levels"]:
+        if total_km >= lv["min_km"]:
+            level = lv
+    return level
+
+
+def user_rate(total_km, cfg):
+    return level_for(total_km, cfg).get("rate_per_km", cfg.get("rate_per_km", 0.40))
 
 
 def summarize(trips, start):
@@ -587,11 +628,14 @@ async def earnings_summary(range: str = "month", user: dict = Depends(get_curren
     ts = await user_trips(user["id"])
     s = summarize(ts, range_start(range))
     week = summarize(ts, range_start("week"))
+    total = summarize(ts, datetime(2000, 1, 1, tzinfo=timezone.utc))
+    rate = user_rate(total["eligible_km"], cfg)
+    level = level_for(total["eligible_km"], cfg)
     goal = cfg["weekly_goal_km"]
     return {"range": range, "earning": s["earning"], "eligible_km": s["eligible_km"],
             "distance_km": s["distance_km"], "trips": s["trips"],
-            "rate_per_km": cfg["rate_per_km"], "currency": cfg["currency"],
-            "multiplier": cfg.get("multiplier"),
+            "rate_per_km": rate, "currency": cfg["currency"],
+            "level": level, "multiplier": cfg.get("multiplier"),
             "weekly": {"goal_km": goal, "current_km": week["eligible_km"],
                        "remaining_km": round(max(0, goal - week["eligible_km"]), 1),
                        "progress": round(min(1.0, week["eligible_km"] / goal), 4) if goal else 0,
@@ -796,7 +840,10 @@ async def delete_bank(ba_id: str, user: dict = Depends(get_current_user)):
 @api.post("/drive/stop")
 async def drive_stop(body: DriveStopIn, user: dict = Depends(get_current_user)):
     cfg = await get_config()
-    rate, er = cfg["rate_per_km"], cfg["eligible_ratio"]
+    er = cfg["eligible_ratio"]
+    ts = await user_trips(user["id"])
+    total = summarize(ts, datetime(2000, 1, 1, tzinfo=timezone.utc))
+    rate = user_rate(total["eligible_km"], cfg)
     eligible = round(body.distance_km * er, 1)
     earning = round(eligible * rate, 2)
     start = parse(body.started_at) if body.started_at else now_utc() - timedelta(seconds=body.duration_sec)
@@ -810,7 +857,7 @@ async def drive_stop(body: DriveStopIn, user: dict = Depends(get_current_user)):
     await db.drivers.update_one({"id": user["id"]}, {"$inc": {"pending_balance": earning}})
     await db.transactions.insert_one({
         "id": str(uuid.uuid4()), "user_id": user["id"], "type": "earning",
-        "title": "GezGelir Hakediş", "amount": earning, "status": "İşleniyor",
+        "title": "GezGelir Kazanç", "amount": earning, "status": "İşleniyor",
         "created_at": iso(now_utc())})
     await create_notification(
         user["id"], "earning", "Sürüş kaydedildi",
@@ -943,6 +990,18 @@ async def list_notifications(user: dict = Depends(get_current_user)):
 async def read_all_notifications(user: dict = Depends(get_current_user)):
     await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
     return {"ok": True}
+
+
+@api.get("/notifications/prefs")
+async def get_prefs(user: dict = Depends(get_current_user)):
+    return await get_notif_prefs(user["id"])
+
+
+@api.put("/notifications/prefs")
+async def set_prefs(body: NotifPrefsIn, user: dict = Depends(get_current_user)):
+    prefs = body.model_dump()
+    await db.users.update_one({"id": user["id"]}, {"$set": {"notif_prefs": prefs}})
+    return prefs
 
 
 @api.post("/notifications/{nid}/read")

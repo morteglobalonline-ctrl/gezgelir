@@ -17,8 +17,8 @@ function fmtClock(sec) {
 
 export default function DriveSession() {
   const navigate = useNavigate();
-  const { config, refresh, refreshNotifications } = useAppData();
-  const rate = config?.rate_per_km || 3;
+  const { config, driver, refresh, refreshNotifications } = useAppData();
+  const rate = driver?.membership?.level?.rate_per_km ?? config?.rate_per_km ?? 0.4;
 
   const [dist, setDist] = useState(0);
   const [elapsed, setElapsed] = useState(0);

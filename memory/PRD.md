@@ -48,6 +48,12 @@ Emotional promise: **Hareket Et, Kazan.** Core loop: Join → approved → drive
 - **Belge Hatırlatıcı**: Home shows a gentle "n belgen eksik" card (→ opens DocumentsSheet) when any document is Eksik; seeded "Belgelerini tamamla" notification for new users. Card hides once all docs uploaded.
 - Testing: iteration_4 — backend **60/60** pytest pass; all frontend flows pass; no functional issues. Applied hardening (nested PushKeys validation → 422, webpush timeout).
 
+## Fixes — Iteration 5 (2026-06-12)
+- **Terminoloji**: Tüm kullanıcıya görünen "Hakediş" → "Kazanç" (Bekleyen Kazanç, işlem başlığı "GezGelir Kazanç", bildirim "Kazancın onaylandı"). Mantık: KM → Kazanç → Bakiye → Ödeme.
+- **Resmi seviye oranları**: Bronz 0,40 / Gold 0,50 / Platinum 0,60 TL/km. Demo 3,00 TL/km kaldırıldı. TL/km her yerde kullanıcının mevcut seviyesinden gelir (`/config` levels + `/earnings/summary` level+rate + `/driver/me` membership.level). Kazanç ekranında seviye kartı + Bronz→Gold→Platinum ilerleme şeridi; Profil rozetinde "Bronz · ₺0,40/km". Örnek kazançlar matematiksel olarak orana uygun (earning=eligible×rate). Seviye eşikleri (min_km) yalnızca backend config'te (uydurulmadı, sonra yönetilecek). Startup migration eski config'i otomatik yamalar.
+- **Logo düzeltmesi**: Wordmark/LogoFull `object-fit:contain`, `maxWidth:100%`, block; marka görselleri şeffaf padding ile yeniden üretildi — hiçbir ekranda kırpılma/stretch yok, aspect ratio korunur.
+- Testing: iteration_5 — backend **77/77** pytest pass; frontend tüm 3 düzeltme her ekranda doğrulandı; sorun yok.
+
 ## MOCKED / Demo
 - Wallet withdrawal & drive-stop update MongoDB state but there is **NO real bank/payment processing**. Balances/transactions are illustrative.
 - No authentication in this iteration; demo driver auto-loads.
