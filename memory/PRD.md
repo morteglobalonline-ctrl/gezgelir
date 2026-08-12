@@ -38,6 +38,11 @@ Emotional promise: **Hareket Et, Kazan.** Core loop: Join → approved → drive
 - **Config extended**: multiplier, missions, badges now in `/api/config` (configurable).
 - Testing: iteration_2 — backend 39/39 pytest pass; all critical frontend flows pass. Fixed: onboarding-skip tap obstruction, deterministic lockout, atomic withdraw.
 
+## Implemented — Iteration 3 (2026-06-12)
+- **Belge Yükleme (Documents)**: Emergent object storage integration. 3 slots (Ehliyet, Araç Ruhsatı, Araç Fotoğrafı); photo/PDF upload from camera/gallery, per-user scoped, authenticated file serving (`/api/documents/{id}/file`). Status: Eksik → İnceleniyor → Onaylandı (demo auto-review ~30s). UI: DocumentsSheet from Profil → Belgelerim (preview thumb, Değiştir, Sil, progress summary).
+- **Bildirim Merkezi (Notifications)**: per-user notifications with unread count; bell badge on Home; NotificationSheet with icons + relative time + "Tümünü okundu işaretle". Auto-generated on drive-stop / withdraw / document upload; 4 seeded on register. Bodies use Turkish number formatting.
+- Testing: iteration_3 — backend 51/51 pytest pass; all frontend flows pass. Fixed: Turkish locale in notification bodies. (Backend suite: /app/backend/tests/backend_test.py.)
+
 ## MOCKED / Demo
 - Wallet withdrawal & drive-stop update MongoDB state but there is **NO real bank/payment processing**. Balances/transactions are illustrative.
 - No authentication in this iteration; demo driver auto-loads.

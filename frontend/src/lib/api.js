@@ -50,4 +50,20 @@ export const endpoints = {
   editBank: (id, payload) => api.put(`/bank-accounts/${id}`, payload).then((r) => r.data),
   setDefaultBank: (id) => api.post(`/bank-accounts/${id}/default`).then((r) => r.data),
   deleteBank: (id) => api.delete(`/bank-accounts/${id}`).then((r) => r.data),
+  // documents
+  documents: () => api.get("/documents").then((r) => r.data),
+  uploadDocument: (type, file) => {
+    const fd = new FormData();
+    fd.append("type", type);
+    fd.append("file", file);
+    return api.post("/documents/upload", fd).then((r) => r.data);
+  },
+  deleteDocument: (id) => api.delete(`/documents/${id}`).then((r) => r.data),
+  // notifications
+  notifications: () => api.get("/notifications").then((r) => r.data),
+  readAllNotifications: () => api.post("/notifications/read-all").then((r) => r.data),
+  readNotification: (id) => api.post(`/notifications/${id}/read`).then((r) => r.data),
 };
+
+export const fileSrc = (path) => `${BASE}/api/files/${path}?auth=${tokenStore.get()}`;
+export const docFileSrc = (id) => `${BASE}/api/documents/${id}/file?auth=${tokenStore.get()}`;

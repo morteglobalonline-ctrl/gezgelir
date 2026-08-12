@@ -248,7 +248,7 @@ function WithdrawSheet({ open, onClose, wallet, banks, onSuccess }) {
 }
 
 export default function Wallet() {
-  const { wallet, refresh } = useAppData();
+  const { wallet, refresh, refreshNotifications } = useAppData();
   const [txs, setTxs] = useState(null);
   const [banks, setBanks] = useState([]);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -329,7 +329,7 @@ export default function Wallet() {
       </div>
 
       <WithdrawSheet open={withdrawOpen} onClose={() => setWithdrawOpen(false)} wallet={wallet} banks={banks}
-        onSuccess={() => { refresh(); loadTx(); }} />
+        onSuccess={() => { refresh(); loadTx(); refreshNotifications(); }} />
       <BankSheet open={bankOpen} onClose={() => setBankOpen(false)} banks={banks}
         reload={async () => { await loadBanks(); refresh(); }} />
     </motion.div>

@@ -17,7 +17,7 @@ function fmtClock(sec) {
 
 export default function DriveSession() {
   const navigate = useNavigate();
-  const { config, refresh } = useAppData();
+  const { config, refresh, refreshNotifications } = useAppData();
   const rate = config?.rate_per_km || 3;
 
   const [dist, setDist] = useState(0);
@@ -61,6 +61,7 @@ export default function DriveSession() {
       const res = await endpoints.driveStop(payload);
       setResult(res.trip);
       await refresh();
+      refreshNotifications();
       setState("done");
     } catch (e) {
       console.error(e);

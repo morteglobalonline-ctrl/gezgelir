@@ -1,6 +1,10 @@
-"""Backend tests for GezGelir driver API — iteration 2 (auth, banks, gamification, map)."""
+"""Backend tests for GezGelir driver API — iteration 3 (documents + notifications regression)."""
+import io
 import os
+import struct
+import time
 import uuid
+import zlib
 from pathlib import Path
 
 import pytest
@@ -383,3 +387,208 @@ class TestDriveStop:
 
         w_after = demo_client.get(f"{BASE_URL}/api/wallet", timeout=15).json()
         assert round(w_after["pending"] - w_before["pending"], 2) >= trip["earning"] - 0.01
+
+
+# ---------------- helpers for iteration 3 ----------------
+def _tiny_png_bytes():
+    """Build a valid 1x1 PNG in memory (no external deps)."""
+    def _chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff))
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)  # 1x1, 8-bit RGB
+    raw = b"\x00\xff\x00\x00"  # filter byte + 1 RGB pixel
+    idat = zlib.compress(raw)
+    return sig + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+def _fresh_user(http, prefix="TEST_doc"):
+    email = new_email(prefix)
+    r = http.post(f"{BASE_URL}/api/auth/register",
+                  json={"email": email, "password": "abcdef", "first_name": "D"}, timeout=15)
+    assert r.status_code == 200, r.text
+    return r.json()["token"], email
+
+
+# ---------------- DOCUMENTS ----------------
+class TestDocuments:
+    def test_list_documents_returns_three_empty_slots(self, http):
+        token, _ = _fresh_user(http)
+        r = http.get(f"{BASE_URL}/api/documents",
+                     headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["total"] == 3 and d["approved"] == 0
+        keys = [s["key"] for s in d["items"]]
+        assert set(keys) == {"ehliyet", "ruhsat", "arac_foto"}
+        for s in d["items"]:
+            assert s["uploaded"] is False and s["status"] == "Eksik"
+
+    def test_documents_require_bearer(self, http):
+        r = http.get(f"{BASE_URL}/api/documents", timeout=15)
+        assert r.status_code == 401
+
+    def test_upload_invalid_type_400(self, http):
+        token, _ = _fresh_user(http)
+        files = {"file": ("x.png", _tiny_png_bytes(), "image/png")}
+        r = requests.post(f"{BASE_URL}/api/documents/upload",
+                          headers={"Authorization": f"Bearer {token}"},
+                          data={"type": "not-a-real-type"}, files=files, timeout=30)
+        assert r.status_code == 400, r.text
+
+    def test_upload_non_image_pdf_400(self, http):
+        token, _ = _fresh_user(http)
+        files = {"file": ("x.txt", b"hello", "text/plain")}
+        r = requests.post(f"{BASE_URL}/api/documents/upload",
+                          headers={"Authorization": f"Bearer {token}"},
+                          data={"type": "ehliyet"}, files=files, timeout=30)
+        assert r.status_code == 400
+
+    def test_upload_flow_supersede_delete_and_file_serve(self, http):
+        token, _ = _fresh_user(http)
+        h = {"Authorization": f"Bearer {token}"}
+        png = _tiny_png_bytes()
+
+        # upload ehliyet
+        files = {"file": ("license.png", png, "image/png")}
+        r = requests.post(f"{BASE_URL}/api/documents/upload", headers=h,
+                          data={"type": "ehliyet"}, files=files, timeout=60)
+        assert r.status_code == 200, r.text
+        doc = r.json()["document"]
+        assert doc["type"] == "ehliyet"
+        assert doc["status"] == "İnceleniyor"
+        doc_id = doc["id"]
+
+        # list — ehliyet uploaded, status İnceleniyor
+        d = http.get(f"{BASE_URL}/api/documents", headers=h, timeout=15).json()
+        eh = next(s for s in d["items"] if s["key"] == "ehliyet")
+        assert eh["uploaded"] is True and eh["status"] == "İnceleniyor"
+        assert eh["id"] == doc_id
+
+        # file serve via Bearer
+        r = requests.get(f"{BASE_URL}/api/documents/{doc_id}/file",
+                         headers=h, timeout=30)
+        assert r.status_code == 200, r.text
+        assert r.headers.get("content-type", "").startswith("image/")
+        assert r.content == png
+
+        # file serve via ?auth= query
+        r = requests.get(f"{BASE_URL}/api/documents/{doc_id}/file",
+                         params={"auth": token}, timeout=30)
+        assert r.status_code == 200
+        assert r.content == png
+
+        # missing token -> 401
+        r = requests.get(f"{BASE_URL}/api/documents/{doc_id}/file", timeout=30)
+        assert r.status_code == 401
+
+        # another user cannot fetch -> 404
+        token_b, _ = _fresh_user(http, prefix="TEST_docB")
+        r = requests.get(f"{BASE_URL}/api/documents/{doc_id}/file",
+                         headers={"Authorization": f"Bearer {token_b}"}, timeout=30)
+        assert r.status_code == 404
+
+        # supersede: upload ehliyet again
+        files = {"file": ("license2.png", png, "image/png")}
+        r2 = requests.post(f"{BASE_URL}/api/documents/upload", headers=h,
+                           data={"type": "ehliyet"}, files=files, timeout=60)
+        assert r2.status_code == 200
+        new_id = r2.json()["document"]["id"]
+        assert new_id != doc_id
+        d = http.get(f"{BASE_URL}/api/documents", headers=h, timeout=15).json()
+        eh = next(s for s in d["items"] if s["key"] == "ehliyet")
+        assert eh["id"] == new_id
+
+        # delete -> slot returns to Eksik
+        r = requests.delete(f"{BASE_URL}/api/documents/{new_id}", headers=h, timeout=15)
+        assert r.status_code == 200
+        d = http.get(f"{BASE_URL}/api/documents", headers=h, timeout=15).json()
+        eh = next(s for s in d["items"] if s["key"] == "ehliyet")
+        assert eh["uploaded"] is False and eh["status"] == "Eksik"
+
+
+# ---------------- NOTIFICATIONS ----------------
+class TestNotifications:
+    def test_seeded_demo_notifications(self, demo_client):
+        # mark all read first for baseline
+        demo_client.post(f"{BASE_URL}/api/notifications/read-all", timeout=15)
+        r = demo_client.get(f"{BASE_URL}/api/notifications", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert isinstance(d["items"], list)
+        assert d["unread"] == 0
+
+    def test_fresh_user_seeded_with_four_notifications_two_unread(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_nt0")
+        h = {"Authorization": f"Bearer {token}"}
+        r = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert len(d["items"]) == 4
+        assert d["unread"] == 2
+
+    def test_drive_stop_creates_earning_notification(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_ntd")
+        h = {"Authorization": f"Bearer {token}"}
+        before = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        before_unread = before["unread"]
+
+        r = requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                          json={"distance_km": 7.5, "duration_sec": 600}, timeout=15)
+        assert r.status_code == 200
+        after = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert after["unread"] == before_unread + 1
+        top = after["items"][0]
+        assert top["type"] == "earning"
+        assert top.get("read") is False
+
+    def test_withdraw_creates_withdrawal_notification(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_ntw")
+        h = {"Authorization": f"Bearer {token}"}
+        r = requests.post(f"{BASE_URL}/api/wallet/withdraw", headers=h,
+                          json={"amount": 5.0}, timeout=15)
+        assert r.status_code == 200, r.text
+        after = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert after["unread"] >= 1
+        assert after["items"][0]["type"] == "withdrawal"
+
+    def test_document_upload_creates_notification(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_ntdoc")
+        h = {"Authorization": f"Bearer {token}"}
+        files = {"file": ("l.png", _tiny_png_bytes(), "image/png")}
+        r = requests.post(f"{BASE_URL}/api/documents/upload", headers=h,
+                          data={"type": "ruhsat"}, files=files, timeout=60)
+        assert r.status_code == 200
+        after = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert after["unread"] >= 1
+        assert after["items"][0]["type"] == "document"
+
+    def test_read_all_and_read_single(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_ntra")
+        h = {"Authorization": f"Bearer {token}"}
+        # generate two unread notifications
+        requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                      json={"distance_km": 3.0, "duration_sec": 120}, timeout=15)
+        requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                      json={"distance_km": 2.0, "duration_sec": 60}, timeout=15)
+        d = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert d["unread"] >= 2
+        top_id = d["items"][0]["id"]
+
+        # mark single
+        r = requests.post(f"{BASE_URL}/api/notifications/{top_id}/read", headers=h, timeout=15)
+        assert r.status_code == 200
+        d2 = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        top = next(n for n in d2["items"] if n["id"] == top_id)
+        assert top["read"] is True
+
+        # mark all
+        r = requests.post(f"{BASE_URL}/api/notifications/read-all", headers=h, timeout=15)
+        assert r.status_code == 200
+        d3 = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert d3["unread"] == 0
+
+    def test_notifications_require_bearer(self, http):
+        assert http.get(f"{BASE_URL}/api/notifications", timeout=15).status_code == 401
+        assert http.post(f"{BASE_URL}/api/notifications/read-all", timeout=15).status_code == 401
+

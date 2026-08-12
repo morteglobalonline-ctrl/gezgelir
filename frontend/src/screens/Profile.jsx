@@ -10,6 +10,7 @@ import { useAuth } from "../context/Auth";
 import { Wordmark, Mascot, LogoFull } from "../components/Brand";
 import { Skeleton } from "../components/ui/Primitives";
 import Sheet from "../components/ui/Sheet";
+import DocumentsSheet from "../components/DocumentsSheet";
 import { money, km, dateFull } from "../lib/format";
 import { staggerParent, riseItem, ENTER_INITIAL } from "../lib/motion";
 
@@ -40,7 +41,14 @@ export default function Profile() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [sheet, setSheet] = useState(null);
+  const [docsOpen, setDocsOpen] = useState(false);
   const m = driver?.membership;
+
+  const handleMenu = (label) => {
+    if (label === "Banka Bilgilerim") navigate("/cuzdan");
+    else if (label === "Belgelerim") setDocsOpen(true);
+    else setSheet(label);
+  };
 
   return (
     <motion.div variants={staggerParent} initial={ENTER_INITIAL} animate="animate" className="px-5">
@@ -124,7 +132,7 @@ export default function Profile() {
           return (
             <button
               key={item.label}
-              onClick={() => (item.label === "Banka Bilgilerim" ? navigate("/cuzdan") : setSheet(item.label))}
+              onClick={() => handleMenu(item.label)}
               className={`w-full flex items-center gap-3 px-4 py-3.5 active:bg-gg-canvas transition-colors ${
                 i !== MENU.length - 1 ? "border-b border-gg-line" : ""
               }`}
@@ -168,6 +176,8 @@ export default function Profile() {
           </p>
         </div>
       </Sheet>
+
+      <DocumentsSheet open={docsOpen} onClose={() => setDocsOpen(false)} />
     </motion.div>
   );
 }

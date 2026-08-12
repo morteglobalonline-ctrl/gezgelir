@@ -10,7 +10,9 @@ load_dotenv(os.path.join(ROOT, ".env"))
 
 import jwt
 import bcrypt
-from fastapi import FastAPI, APIRouter, HTTPException, Query, Request, Depends
+import requests
+from fastapi import (FastAPI, APIRouter, HTTPException, Query, Request, Depends,
+                     UploadFile, File, Form, Header, Response)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -184,6 +186,91 @@ ROUTES = {
 
 
 # ---------------------------------------------------------------------------
+# Object storage (Emergent-managed)
+# ---------------------------------------------------------------------------
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "gezgelir"
+_storage_key = None
+
+MIME_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+              "gif": "image/gif", "webp": "image/webp", "heic": "image/heic",
+              "heif": "image/heif", "pdf": "application/pdf"}
+
+
+def init_storage(force=False):
+    global _storage_key
+    if _storage_key and not force:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def put_object(path, data, content_type):
+    try:
+        key = init_storage()
+        r = requests.put(f"{STORAGE_URL}/objects/{path}",
+                         headers={"X-Storage-Key": key, "Content-Type": content_type},
+                         data=data, timeout=120)
+        if r.status_code == 404:
+            key = init_storage(force=True)
+            r = requests.put(f"{STORAGE_URL}/objects/{path}",
+                             headers={"X-Storage-Key": key, "Content-Type": content_type},
+                             data=data, timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Depolama hatası: {e}")
+
+
+def get_object(path):
+    key = init_storage()
+    r = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    if r.status_code == 404:
+        key = init_storage(force=True)
+        r = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    r.raise_for_status()
+    return r.content, r.headers.get("Content-Type", "application/octet-stream")
+
+
+# Required document slots + statuses
+DOC_TYPES = [
+    {"key": "ehliyet", "label": "Ehliyet", "desc": "Sürücü belgenin ön yüzü"},
+    {"key": "ruhsat", "label": "Araç Ruhsatı", "desc": "Aracının ruhsat belgesi"},
+    {"key": "arac_foto", "label": "Araç Fotoğrafı", "desc": "Aracının net bir fotoğrafı"},
+]
+DOC_LABELS = {d["key"]: d["label"] for d in DOC_TYPES}
+
+
+def doc_status(created_iso):
+    """Demo review flow: İnceleniyor for ~30s after upload, then Onaylandı."""
+    elapsed = (now_utc() - parse(created_iso)).total_seconds()
+    return "İnceleniyor" if elapsed < 30 else "Onaylandı"
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+def tr_amount(v):
+    s = f"{float(v):,.2f}".replace(",", "§").replace(".", ",").replace("§", ".")
+    return s
+
+
+def tr_km(v):
+    return f"{float(v):.1f}".replace(".", ",")
+
+
+async def create_notification(user_id, ntype, title, body, icon="bell"):
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
+        "title": title, "body": body, "icon": icon,
+        "read": False, "created_at": iso(now_utc())})
+
+
+# ---------------------------------------------------------------------------
 # Seeding
 # ---------------------------------------------------------------------------
 def make_trip(user_id, days_ago, hour, dur_hours, dist, status, rate, er):
@@ -247,6 +334,17 @@ async def seed_user_data(user_id):
         "available_balance": 4850.00, "pending_balance": 1240.60,
         "withdrawn_this_month": 3000.00, "default_bank_account_id": ba_id})
 
+    seed_notifs = [
+        ("earning", "Hakedişin onaylandı", "84,6 km'lik sürüşünden ₺253,80 hesabına eklendi.", "coins", 0),
+        ("approval", "Aracın uygun", "Volkswagen Passat aracın GezGelir için onaylandı.", "check", 1),
+        ("withdrawal", "Çekimin tamamlandı", "₺3.000,00 banka hesabına başarıyla aktarıldı.", "wallet", 6),
+        ("info", "Hoş geldin! 🎉", "GezGelir'e katıldın. Hareket et, kazanmaya başla.", "spark", 8),
+    ]
+    await db.notifications.insert_many([
+        {"id": str(uuid.uuid4()), "user_id": user_id, "type": t, "title": ti,
+         "body": b, "icon": ic, "read": d > 2, "created_at": iso(now_utc() - timedelta(days=d, hours=d))}
+        for (t, ti, b, ic, d) in seed_notifs])
+
 
 async def get_config():
     cfg = await db.config.find_one({"id": "gezgelir-config"}, {"_id": 0})
@@ -255,6 +353,10 @@ async def get_config():
 
 @app.on_event("startup")
 async def _startup():
+    try:
+        init_storage()
+    except Exception as e:
+        print("Storage init failed:", e)
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     if not await db.config.find_one({"id": "gezgelir-config"}):
@@ -553,6 +655,9 @@ async def withdraw(body: WithdrawIn, user: dict = Depends(get_current_user)):
           "status": "Beklemede", "lifecycle": True, "bank_iban": ba["iban"],
           "created_at": iso(now_utc())}
     await db.transactions.insert_one(dict(tx))
+    await create_notification(
+        user["id"], "withdrawal", "Çekim talebin alındı",
+        f"₺{tr_amount(body.amount)} tutarındaki çekim {ba['bank_name']} hesabına işleniyor.", "wallet")
     tx.pop("_id", None)
     return {"ok": True, "transaction": serialize_tx(tx)}
 
@@ -641,6 +746,9 @@ async def drive_stop(body: DriveStopIn, user: dict = Depends(get_current_user)):
         "id": str(uuid.uuid4()), "user_id": user["id"], "type": "earning",
         "title": "GezGelir Hakediş", "amount": earning, "status": "İşleniyor",
         "created_at": iso(now_utc())})
+    await create_notification(
+        user["id"], "earning", "Sürüş kaydedildi",
+        f"{tr_km(eligible)} km kazandıran mesafe · +₺{tr_amount(earning)} hesabına işleniyor.", "coins")
     trip.pop("_id", None)
     return {"ok": True, "trip": trip}
 
@@ -648,6 +756,133 @@ async def drive_stop(body: DriveStopIn, user: dict = Depends(get_current_user)):
 @api.get("/health")
 async def health():
     return {"status": "ok", "service": "gezgelir"}
+
+
+# ---------------------------------------------------------------------------
+# Documents
+# ---------------------------------------------------------------------------
+@api.get("/documents")
+async def list_documents(user: dict = Depends(get_current_user)):
+    docs = await db.documents.find(
+        {"user_id": user["id"], "is_deleted": False}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    latest = {}
+    for d in docs:
+        if d["type"] not in latest:
+            latest[d["type"]] = d
+    slots = []
+    for t in DOC_TYPES:
+        d = latest.get(t["key"])
+        if d:
+            slots.append({**t, "uploaded": True, "id": d["id"],
+                          "status": doc_status(d["created_at"]),
+                          "original_filename": d.get("original_filename"),
+                          "content_type": d.get("content_type"),
+                          "created_at": d["created_at"]})
+        else:
+            slots.append({**t, "uploaded": False, "status": "Eksik"})
+    approved = sum(1 for s in slots if s["status"] == "Onaylandı")
+    return {"items": slots, "approved": approved, "total": len(slots)}
+
+
+@api.post("/documents/upload")
+async def upload_document(type: str = Form(...), file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user)):
+    if type not in DOC_LABELS:
+        raise HTTPException(400, "Geçersiz belge türü")
+    ext = (file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin")
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    if not content_type.startswith("image/") and content_type != "application/pdf":
+        raise HTTPException(400, "Yalnızca görsel veya PDF yükleyebilirsin")
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Dosya en fazla 10MB olabilir")
+    path = f"{APP_NAME}/uploads/{user['id']}/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, content_type)
+    # supersede previous docs of same type
+    await db.documents.update_many(
+        {"user_id": user["id"], "type": type, "is_deleted": False}, {"$set": {"is_deleted": True}})
+    rec = {"id": str(uuid.uuid4()), "user_id": user["id"], "type": type,
+           "storage_path": result["path"], "original_filename": file.filename,
+           "content_type": content_type, "size": result.get("size", len(data)),
+           "is_deleted": False, "created_at": iso(now_utc())}
+    await db.documents.insert_one(dict(rec))
+    await create_notification(
+        user["id"], "document", f"{DOC_LABELS[type]} yüklendi",
+        "Belgen incelemeye alındı. Kısa süre içinde onaylanacak.", "doc")
+    return {"ok": True, "document": {"id": rec["id"], "type": type,
+            "status": doc_status(rec["created_at"]), "created_at": rec["created_at"]}}
+
+
+@api.get("/documents/{doc_id}/file")
+async def serve_document(doc_id: str, authorization: str = Header(None), auth: str = Query(None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif auth:
+        token = auth
+    if not token:
+        raise HTTPException(401, "Yetki gerekli")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Geçersiz oturum")
+    rec = await db.documents.find_one({"id": doc_id, "user_id": payload["sub"], "is_deleted": False})
+    if not rec:
+        raise HTTPException(404, "Dosya bulunamadı")
+    data, content_type = get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type", content_type))
+
+
+@api.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str, user: dict = Depends(get_current_user)):
+    res = await db.documents.update_one(
+        {"id": doc_id, "user_id": user["id"]}, {"$set": {"is_deleted": True}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Belge bulunamadı")
+    return {"ok": True}
+
+
+@api.get("/files/{path:path}")
+async def serve_file(path: str, authorization: str = Header(None), auth: str = Query(None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif auth:
+        token = auth
+    if not token:
+        raise HTTPException(401, "Yetki gerekli")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Geçersiz oturum")
+    rec = await db.documents.find_one({"storage_path": path, "is_deleted": False})
+    if not rec or rec["user_id"] != payload["sub"]:
+        raise HTTPException(404, "Dosya bulunamadı")
+    data, content_type = get_object(path)
+    return Response(content=data, media_type=rec.get("content_type", content_type))
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+@api.get("/notifications")
+async def list_notifications(user: dict = Depends(get_current_user)):
+    items = await db.notifications.find(
+        {"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    unread = sum(1 for n in items if not n.get("read"))
+    return {"items": items, "unread": unread}
+
+
+@api.post("/notifications/read-all")
+async def read_all_notifications(user: dict = Depends(get_current_user)):
+    await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.post("/notifications/{nid}/read")
+async def read_notification(nid: str, user: dict = Depends(get_current_user)):
+    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
 
 
 app.include_router(api)

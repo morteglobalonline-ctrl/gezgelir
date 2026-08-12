@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Bell, Play, Navigation, Gauge, CalendarDays, Clock3, ChevronRight, Timer, Zap } from "lucide-react";
 import { endpoints } from "../lib/api";
 import { useAppData } from "../context/AppData";
+import NotificationSheet from "../components/NotificationSheet";
 import { Wordmark, Mascot } from "../components/Brand";
 import AnimatedNumber from "../components/ui/AnimatedNumber";
 import { Button, ProgressBar, Skeleton, SectionTitle, StatusBadge } from "../components/ui/Primitives";
@@ -28,9 +29,10 @@ function QuickMetric({ icon: Icon, label, value, accent }) {
 
 export default function Home() {
   const navigate = useNavigate();
-  const { driver, wallet, config } = useAppData();
+  const { driver, wallet, config, unread } = useAppData();
   const [today, setToday] = useState(null);
   const [recent, setRecent] = useState(null);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
     endpoints.earnings("today").then(setToday).catch(() => {});
@@ -46,13 +48,23 @@ export default function Home() {
       <motion.div variants={riseItem} className="safe-top flex items-center justify-between pt-3 pb-4">
         <Wordmark style={{ height: 26 }} />
         <button
+          onClick={() => setNotifOpen(true)}
           className="relative grid place-items-center h-11 w-11 rounded-2xl bg-white border border-gg-line shadow-soft"
           data-testid="notifications-button"
         >
           <Bell size={20} className="text-gg-ink" strokeWidth={2.2} />
-          <span className="absolute top-2.5 right-3 h-2 w-2 rounded-full bg-gg-green ring-2 ring-white" />
+          {unread > 0 && (
+            <span
+              className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full bg-gg-green text-white text-[10px] font-800 ring-2 ring-white tnum"
+              data-testid="notif-badge"
+            >
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
         </button>
       </motion.div>
+
+      <NotificationSheet open={notifOpen} onClose={() => setNotifOpen(false)} />
 
       {/* Greeting */}
       <motion.div variants={riseItem} className="mb-4">

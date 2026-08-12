@@ -58,3 +58,15 @@ export const greetingByHour = () => {
   if (h < 18) return "İyi günler";
   return "İyi akşamlar";
 };
+
+export const timeAgo = (iso) => {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "az önce";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} dk önce`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} saat önce`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d} gün önce`;
+  return dateLabel(iso);
+};

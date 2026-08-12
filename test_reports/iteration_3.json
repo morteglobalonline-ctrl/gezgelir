@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration-3 E2E for GezGelir Documents + Notifications features + full regression. Backend: 51/51 pytest tests PASSED against the public URL, including the new TestDocuments (list returns 3 slots ehliyet/ruhsat/arac_foto all 'Eksik'; 401 without Bearer; POST /documents/upload invalid type -> 400, non-image/PDF -> 400; happy path upload returns İnceleniyor and list reflects it; supersede replaces slot id; DELETE returns slot to Eksik; file serve works with Bearer AND ?auth=<token>; missing token -> 401; different user's token -> 404; byte-identical file bytes returned) and TestNotifications (fresh register seeds 4 notifications with 2 unread; POST /notifications/read-all zeroes unread; POST /notifications/{id}/read marks single; /drive/stop creates 'earning' notif on top; /wallet/withdraw creates 'withdrawal' notif; /documents/upload creates 'document' notif; 401 gating). Regression pass includes prior 39 auth/scoping/trips/earnings/gamification/banks/withdraw/drive cases plus the new deterministic email-based lockout (5 wrong attempts -> 429). Frontend (390x844 mobile): fresh registration flow, bell shows notif-badge with count 2, notification-sheet opens with 4 seeded items, mark-all-read hides the badge, DocumentsSheet from Profil > Belgelerim renders 3 slots all 'Eksik', upload via hidden document-file-input flips slot to 'İnceleniyor' with thumbnail + Değiştir + delete controls, doc upload bumps the badge, DriveSession Sürüşü Bitir -> DriveSuccess -> Home shows badge=1 with newest notification 'Sürüş kaydedildi ... +₺0.30 hesabına işleniyor.'",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Notification body strings (drive_stop, withdraw)", "issues": ["Turkish locale mismatch: notification bodies use Python default '.'-decimal (e.g. '0.1 km · +₺0.30', '₺5.00 tutarındaki çekim...') while the rest of the app uses Turkish '0,1 km' and '₺253,80'. Format server-side with locale-aware separators (or use Intl.NumberFormat('tr-TR', {style:'currency', currency:'TRY'}) on the client for the amount portion)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Format currency/distance in server-generated notification bodies using Turkish separators (₺%.2f prints '.' — replace with tr_TR-style formatting so drive/withdraw notifications match the app's typography)."
+  ],
+  "critical_code_review_comments": [
+    "server.py /documents/{id}/file and /files/{path} both accept JWT via the `auth` query parameter — this is convenient for <img src> but query strings are logged by ingress/proxies and land in browser history. Consider issuing short-lived signed URLs (HMAC of path+exp) instead of the raw access token, so leaking a log line does not leak the session.",
+    "put_object() streams up to 10MB in memory via UploadFile.read() — fine for photos, but there is no explicit MIME sniffing (only client-supplied Content-Type / extension). A hostile client can upload an arbitrary payload with content-type image/png; consider magic-byte validation (e.g., imghdr / Pillow open) before persisting.",
+    "doc_status() computes 'İnceleniyor'/'Onaylandı' from wall-clock only. On a resume/restore the demo will jump status if the server was down — acceptable for demo, but note there is no persisted review state."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "100% of iteration-3 flows verified"},
+  "seed_data_creation": "Registered several TEST_* users and one UI test user (uitest_<ts>@example.com). Each fresh register is auto-seeded by the backend with 14 trips, 6 transactions, 1 bank account, and 4 notifications (2 unread). Uploaded 1x1 PNGs to ehliyet/ruhsat during tests; delete-supersede is exercised.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Demo: demo@gezgelir.com / demo1234 (from /app/memory/test_credentials.md).",
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/backend_test.py — 51 pytest cases across TestAuth, TestScoping, TestBasics, TestTrips, TestEarnings, TestGamification, TestBankAccounts, TestWithdraw, TestDriveStop, TestDocuments, TestNotifications. Fresh registrations receive 4 seeded notifications (2 unread) via seed_user_data — assert deltas rather than absolute unread counts unless you call /notifications/read-all first. Document status is time-computed (<30s İnceleniyor, then Onaylandı). Document file serve accepts token via `Authorization: Bearer` header or `?auth=<token>` query. NotificationSheet is closed via [data-testid=sheet-close] (X icon); Escape does not close it. DriveSuccess sheet is dismissed via the 'Harika!' button; the bell lives on Home only.",
+  "rca_of_the_issue": "N/A — no functional defects observed in iteration-3 scope. The only minor finding is cosmetic locale formatting inside server-generated notification body strings."
+}
