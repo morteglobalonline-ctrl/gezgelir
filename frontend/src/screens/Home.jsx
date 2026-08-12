@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Navigation, Gauge, CalendarDays, Clock3, ChevronRight, Timer, Zap } from "lucide-react";
+import { Bell, Play, Navigation, Gauge, CalendarDays, Clock3, ChevronRight, Timer, Zap, FileText } from "lucide-react";
 import { endpoints } from "../lib/api";
 import { useAppData } from "../context/AppData";
 import NotificationSheet from "../components/NotificationSheet";
+import DocumentsSheet from "../components/DocumentsSheet";
 import { Wordmark, Mascot } from "../components/Brand";
 import AnimatedNumber from "../components/ui/AnimatedNumber";
 import { Button, ProgressBar, Skeleton, SectionTitle, StatusBadge } from "../components/ui/Primitives";
@@ -33,11 +34,16 @@ export default function Home() {
   const [today, setToday] = useState(null);
   const [recent, setRecent] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [docs, setDocs] = useState(null);
+  const [docsOpen, setDocsOpen] = useState(false);
 
   useEffect(() => {
     endpoints.earnings("today").then(setToday).catch(() => {});
     endpoints.trips("month").then((d) => setRecent(d.items?.[0] || null)).catch(() => {});
+    endpoints.documents().then(setDocs).catch(() => {});
   }, []);
+
+  const missingDocs = docs ? docs.items.filter((s) => s.status === "Eksik") : [];
 
   const name = driver?.greeting_name || "Sürücü";
   const rate = config?.rate_per_km || today?.rate_per_km || 0;
@@ -65,6 +71,7 @@ export default function Home() {
       </motion.div>
 
       <NotificationSheet open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <DocumentsSheet open={docsOpen} onClose={() => { setDocsOpen(false); endpoints.documents().then(setDocs).catch(() => {}); }} />
 
       {/* Greeting */}
       <motion.div variants={riseItem} className="mb-4">
@@ -115,6 +122,29 @@ export default function Home() {
           Sürüşe Başla
         </Button>
       </motion.div>
+
+      {/* Missing documents reminder */}
+      {missingDocs.length > 0 && (
+        <motion.button
+          variants={riseItem}
+          onClick={() => setDocsOpen(true)}
+          className="mt-4 w-full flex items-center gap-3 rounded-2xl border border-[#F3E2BC] bg-[#FFF7E6] p-3.5 text-left active:scale-[0.99] transition-transform"
+          data-testid="doc-reminder-card"
+        >
+          <div className="grid place-items-center h-10 w-10 rounded-xl bg-gg-gold text-white shrink-0">
+            <FileText size={19} strokeWidth={2.4} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-700 text-[13.5px] text-gg-ink">
+              {missingDocs.length} belgen eksik
+            </p>
+            <p className="text-[12px] text-gg-ink-2 truncate">
+              {missingDocs.map((d) => d.label).join(", ")} · tamamla, aracın uygun kalsın
+            </p>
+          </div>
+          <ChevronRight size={18} className="text-gg-ink-3 shrink-0" />
+        </motion.button>
+      )}
 
       {/* Active multiplier */}
       {config?.multiplier?.active && (

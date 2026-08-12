@@ -43,6 +43,11 @@ Emotional promise: **Hareket Et, Kazan.** Core loop: Join → approved → drive
 - **Bildirim Merkezi (Notifications)**: per-user notifications with unread count; bell badge on Home; NotificationSheet with icons + relative time + "Tümünü okundu işaretle". Auto-generated on drive-stop / withdraw / document upload; 4 seeded on register. Bodies use Turkish number formatting.
 - Testing: iteration_3 — backend 51/51 pytest pass; all frontend flows pass. Fixed: Turkish locale in notification bodies. (Backend suite: /app/backend/tests/backend_test.py.)
 
+## Implemented — Iteration 4 (2026-06-12)
+- **Anlık Bildirim (Web Push, VAPID)**: Service Worker (`/sw.js`) + `pywebpush`. Auto-generated VAPID keys in `db.settings`. Endpoints `/push/public-key` (public), `/push/subscribe` (validated PushKeys), `/push/unsubscribe`, `/push/test`. Push fires best-effort (non-blocking, 10s timeout, dead subs auto-pruned on 404/410) on every notification (drive/withdraw/upload). Toggle in NotificationSheet (enable/disable) with graceful denied/unsupported states.
+- **Belge Hatırlatıcı**: Home shows a gentle "n belgen eksik" card (→ opens DocumentsSheet) when any document is Eksik; seeded "Belgelerini tamamla" notification for new users. Card hides once all docs uploaded.
+- Testing: iteration_4 — backend **60/60** pytest pass; all frontend flows pass; no functional issues. Applied hardening (nested PushKeys validation → 422, webpush timeout).
+
 ## MOCKED / Demo
 - Wallet withdrawal & drive-stop update MongoDB state but there is **NO real bank/payment processing**. Balances/transactions are illustrative.
 - No authentication in this iteration; demo driver auto-loads.

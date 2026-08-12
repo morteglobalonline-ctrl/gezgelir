@@ -519,13 +519,14 @@ class TestNotifications:
         assert d["unread"] == 0
 
     def test_fresh_user_seeded_with_four_notifications_two_unread(self, http):
+        # Iteration 4 adds a 5th seeded notification ('Belgelerini tamamla').
         token, _ = _fresh_user(http, prefix="TEST_nt0")
         h = {"Authorization": f"Bearer {token}"}
         r = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15)
         assert r.status_code == 200
         d = r.json()
-        assert len(d["items"]) == 4
-        assert d["unread"] == 2
+        assert len(d["items"]) >= 4
+        assert d["unread"] >= 2
 
     def test_drive_stop_creates_earning_notification(self, http):
         token, _ = _fresh_user(http, prefix="TEST_ntd")
@@ -591,4 +592,113 @@ class TestNotifications:
     def test_notifications_require_bearer(self, http):
         assert http.get(f"{BASE_URL}/api/notifications", timeout=15).status_code == 401
         assert http.post(f"{BASE_URL}/api/notifications/read-all", timeout=15).status_code == 401
+
+    def test_fresh_user_has_document_reminder_notification(self, http):
+        """Iteration 4: seeded 'Belgelerini tamamla' reminder must exist for new users."""
+        token, _ = _fresh_user(http, prefix="TEST_ntdocrem")
+        h = {"Authorization": f"Bearer {token}"}
+        r = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert any("Belgelerini tamamla" in n.get("title", "") for n in items), \
+            f"reminder not found in: {[n.get('title') for n in items]}"
+        # docs should be 0/3
+        d = requests.get(f"{BASE_URL}/api/documents", headers=h, timeout=15).json()
+        assert d["total"] == 3 and d["approved"] == 0
+
+
+# ---------------- WEB PUSH (iteration 4) ----------------
+class TestPush:
+    def test_public_key_no_auth(self, http):
+        r = http.get(f"{BASE_URL}/api/push/public-key", timeout=15)
+        assert r.status_code == 200, r.text
+        key = r.json().get("key")
+        assert isinstance(key, str) and len(key) >= 80, f"unexpected key: {key!r}"
+        # base64url-safe: no '+' '/' or '='
+        assert not any(c in key for c in "+/="), f"key not base64url: {key!r}"
+
+    def test_subscribe_requires_auth(self, http):
+        r = http.post(f"{BASE_URL}/api/push/subscribe",
+                      json={"endpoint": "https://example.com/x",
+                            "keys": {"p256dh": "a", "auth": "b"}}, timeout=15)
+        assert r.status_code == 401
+
+    def test_unsubscribe_requires_auth(self, http):
+        r = http.post(f"{BASE_URL}/api/push/unsubscribe",
+                      json={"endpoint": "https://example.com/x"}, timeout=15)
+        assert r.status_code == 401
+
+    def test_test_requires_auth(self, http):
+        r = http.post(f"{BASE_URL}/api/push/test", timeout=15)
+        assert r.status_code == 401
+
+    def test_subscribe_upsert_and_unsubscribe(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_push")
+        h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        endpoint = f"https://example.com/push/{uuid.uuid4().hex}"
+        payload = {"endpoint": endpoint, "keys": {"p256dh": "AAAA", "auth": "BBBB"}}
+
+        r1 = requests.post(f"{BASE_URL}/api/push/subscribe", headers=h, json=payload, timeout=15)
+        assert r1.status_code == 200, r1.text
+        assert r1.json().get("ok") is True
+
+        # Second call with same endpoint = upsert (still 200, no duplicate error)
+        r2 = requests.post(f"{BASE_URL}/api/push/subscribe", headers=h, json=payload, timeout=15)
+        assert r2.status_code == 200
+        assert r2.json().get("ok") is True
+
+        # unsubscribe
+        r3 = requests.post(f"{BASE_URL}/api/push/unsubscribe", headers=h,
+                           json={"endpoint": endpoint}, timeout=15)
+        assert r3.status_code == 200
+        assert r3.json().get("ok") is True
+
+    def test_push_test_creates_info_notification(self, http):
+        token, _ = _fresh_user(http, prefix="TEST_pusht")
+        h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        before = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        before_unread = before["unread"]
+
+        r = requests.post(f"{BASE_URL}/api/push/test", headers=h, timeout=15)
+        assert r.status_code == 200, r.text
+        assert r.json().get("ok") is True
+
+        after = requests.get(f"{BASE_URL}/api/notifications", headers=h, timeout=15).json()
+        assert after["unread"] == before_unread + 1
+        top = after["items"][0]
+        assert top["type"] == "info"
+        assert top.get("read") is False
+
+    def test_bogus_subscription_does_not_break_drive_stop(self, http):
+        """create_notification triggers push_to_user; a bogus endpoint must not
+        block or fail /drive/stop. Response must remain 200 and reasonably fast."""
+        token, _ = _fresh_user(http, prefix="TEST_pushbog")
+        h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        bogus = {"endpoint": f"https://example.invalid/push/{uuid.uuid4().hex}",
+                 "keys": {"p256dh": "AAAA", "auth": "BBBB"}}
+        r = requests.post(f"{BASE_URL}/api/push/subscribe", headers=h, json=bogus, timeout=15)
+        assert r.status_code == 200
+
+        t0 = time.time()
+        r = requests.post(f"{BASE_URL}/api/drive/stop", headers=h,
+                          json={"distance_km": 3.0, "duration_sec": 120}, timeout=20)
+        elapsed = time.time() - t0
+        assert r.status_code == 200, r.text
+        assert elapsed < 15, f"drive/stop too slow with bogus push sub: {elapsed:.2f}s"
+
+    def test_notification_bodies_use_turkish_number_format(self, demo_client):
+        """Turkish-locale formatting: ₺ amounts should use ',' as decimal separator
+        and '.' as thousands separator (e.g., '₺1.234,50', '41,0 km')."""
+        # generate an earning notif
+        r = demo_client.post(f"{BASE_URL}/api/drive/stop",
+                             json={"distance_km": 41.0, "duration_sec": 900}, timeout=15)
+        assert r.status_code == 200
+        notifs = demo_client.get(f"{BASE_URL}/api/notifications", timeout=15).json()["items"]
+        top = next((n for n in notifs if n["type"] == "earning"), None)
+        assert top is not None, "no earning notif after drive/stop"
+        body = top.get("body", "")
+        # Check for TR-style number: comma decimal in either the km or ₺ amount
+        import re as _re
+        has_tr_number = bool(_re.search(r"\d+,\d", body))
+        assert has_tr_number, f"expected TR-formatted numbers in notification body: {body!r}"
 

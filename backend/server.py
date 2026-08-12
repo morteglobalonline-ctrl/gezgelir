@@ -1,5 +1,8 @@
 import os
 import uuid
+import json
+import base64
+import asyncio
 import random
 from datetime import datetime, timezone, timedelta
 
@@ -11,6 +14,9 @@ load_dotenv(os.path.join(ROOT, ".env"))
 import jwt
 import bcrypt
 import requests
+from pywebpush import webpush, WebPushException
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 from fastapi import (FastAPI, APIRouter, HTTPException, Query, Request, Depends,
                      UploadFile, File, Form, Header, Response)
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,6 +128,20 @@ class BankAccountIn(BaseModel):
     iban: str = Field(min_length=10)
     holder_name: str = Field(min_length=1)
     make_default: bool = False
+
+
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscribeIn(BaseModel):
+    endpoint: str
+    keys: PushKeys
+
+
+class PushUnsubIn(BaseModel):
+    endpoint: str
 
 
 # ---------------------------------------------------------------------------
@@ -263,11 +283,56 @@ def tr_km(v):
     return f"{float(v):.1f}".replace(".", ",")
 
 
+VAPID_CLAIMS_SUB = "mailto:destek@gezgelir.com"
+
+
+async def get_vapid():
+    doc = await db.settings.find_one({"id": "vapid"}, {"_id": 0})
+    if not doc:
+        pk = ec.generate_private_key(ec.SECP256R1())
+        priv_pem = pk.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()).decode()
+        pub_point = pk.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        pub_b64 = base64.urlsafe_b64encode(pub_point).rstrip(b"=").decode()
+        doc = {"id": "vapid", "private_pem": priv_pem, "public_b64": pub_b64}
+        await db.settings.insert_one(dict(doc))
+    return doc
+
+
+def _send_push(sub_info, payload, priv_pem):
+    webpush(subscription_info=sub_info, data=payload, timeout=10,
+            vapid_private_key=priv_pem, vapid_claims={"sub": VAPID_CLAIMS_SUB})
+
+
+async def push_to_user(user_id, title, body, icon="bell"):
+    subs = await db.push_subs.find({"user_id": user_id}, {"_id": 0}).to_list(50)
+    if not subs:
+        return
+    v = await get_vapid()
+    payload = json.dumps({"title": title, "body": body, "icon": icon})
+    for s in subs:
+        try:
+            await asyncio.to_thread(
+                _send_push, {"endpoint": s["endpoint"], "keys": s["keys"]}, payload, v["private_pem"])
+        except WebPushException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):
+                await db.push_subs.delete_one({"endpoint": s["endpoint"]})
+        except Exception:
+            pass
+
+
 async def create_notification(user_id, ntype, title, body, icon="bell"):
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "type": ntype,
         "title": title, "body": body, "icon": icon,
         "read": False, "created_at": iso(now_utc())})
+    try:
+        await push_to_user(user_id, title, body, icon)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +400,7 @@ async def seed_user_data(user_id):
         "withdrawn_this_month": 3000.00, "default_bank_account_id": ba_id})
 
     seed_notifs = [
+        ("document", "Belgelerini tamamla", "Ehliyet ve ruhsatını yükleyerek hesabını tam aktif hale getir.", "doc", 0),
         ("earning", "Hakedişin onaylandı", "84,6 km'lik sürüşünden ₺253,80 hesabına eklendi.", "coins", 0),
         ("approval", "Aracın uygun", "Volkswagen Passat aracın GezGelir için onaylandı.", "check", 1),
         ("withdrawal", "Çekimin tamamlandı", "₺3.000,00 banka hesabına başarıyla aktarıldı.", "wallet", 6),
@@ -882,6 +948,37 @@ async def read_all_notifications(user: dict = Depends(get_current_user)):
 @api.post("/notifications/{nid}/read")
 async def read_notification(nid: str, user: dict = Depends(get_current_user)):
     await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Web Push
+# ---------------------------------------------------------------------------
+@api.get("/push/public-key")
+async def push_public_key():
+    v = await get_vapid()
+    return {"key": v["public_b64"]}
+
+
+@api.post("/push/subscribe")
+async def push_subscribe(body: PushSubscribeIn, user: dict = Depends(get_current_user)):
+    await db.push_subs.update_one(
+        {"endpoint": body.endpoint},
+        {"$set": {"endpoint": body.endpoint, "keys": body.keys.model_dump(), "user_id": user["id"],
+                  "created_at": iso(now_utc())}}, upsert=True)
+    return {"ok": True}
+
+
+@api.post("/push/unsubscribe")
+async def push_unsubscribe(body: PushUnsubIn, user: dict = Depends(get_current_user)):
+    await db.push_subs.delete_one({"endpoint": body.endpoint, "user_id": user["id"]})
+    return {"ok": True}
+
+
+@api.post("/push/test")
+async def push_test(user: dict = Depends(get_current_user)):
+    await create_notification(user["id"], "info", "GezGelir",
+                              "Anlık bildirimler açık! Hareket et, kazan.", "spark")
     return {"ok": True}
 
 

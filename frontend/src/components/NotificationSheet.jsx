@@ -1,9 +1,11 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Coins, CheckCircle2, Wallet, Sparkles, FileText, Bell, CheckCheck } from "lucide-react";
+import { Coins, CheckCircle2, Wallet, Sparkles, FileText, Bell, CheckCheck, BellRing, BellOff } from "lucide-react";
 import Sheet from "./ui/Sheet";
 import { useAppData } from "../context/AppData";
 import { timeAgo } from "../lib/format";
+import { pushSupported, getPushStatus, enablePush, disablePush } from "../lib/push";
+import { endpoints } from "../lib/api";
 
 const ICONS = {
   coins: { Icon: Coins, bg: "bg-gg-mint", color: "text-gg-green-700" },
@@ -16,13 +18,66 @@ const ICONS = {
 
 export default function NotificationSheet({ open, onClose }) {
   const { notifications, unread, refreshNotifications, markAllRead } = useAppData();
+  const [pushState, setPushState] = useState("disabled");
+  const [pushBusy, setPushBusy] = useState(false);
 
   useEffect(() => {
-    if (open) refreshNotifications();
+    if (open) {
+      refreshNotifications();
+      getPushStatus().then(setPushState);
+    }
   }, [open, refreshNotifications]);
+
+  const togglePush = async () => {
+    setPushBusy(true);
+    try {
+      if (pushState === "enabled") {
+        setPushState(await disablePush());
+      } else {
+        const s = await enablePush();
+        setPushState(s);
+        try { await endpoints.pushTest(); refreshNotifications(); } catch (e) {}
+      }
+    } catch (e) {
+      setPushState(await getPushStatus());
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const PushIcon = pushState === "enabled" ? BellRing : BellOff;
+  const pushLabel =
+    pushState === "unsupported" ? "Cihaz desteklemiyor"
+    : pushState === "denied" ? "İzin reddedildi — tarayıcı ayarlarından aç"
+    : pushState === "enabled" ? "Anlık bildirimler açık"
+    : "Anlık bildirimleri aç";
 
   return (
     <Sheet open={open} onClose={onClose} title="Bildirimler" testId="notification-sheet">
+      {pushSupported() && (
+        <button
+          onClick={togglePush}
+          disabled={pushBusy || pushState === "unsupported" || pushState === "denied"}
+          className={`w-full mb-4 flex items-center gap-3 rounded-2xl p-3.5 border transition-colors ${
+            pushState === "enabled" ? "border-gg-mint-2 bg-gg-mint/50" : "border-gg-line bg-white"
+          }`}
+          data-testid="push-toggle"
+        >
+          <div className={`grid place-items-center h-10 w-10 rounded-xl shrink-0 ${pushState === "enabled" ? "bg-gg-green text-white" : "bg-gg-mint text-gg-green-700"}`}>
+            <PushIcon size={19} strokeWidth={2.3} />
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="font-700 text-[14px] text-gg-ink">{pushLabel}</p>
+            <p className="text-[12px] text-gg-ink-2">Kazanç, onay ve çekim gelişmelerini anında al.</p>
+          </div>
+          {pushState !== "denied" && pushState !== "unsupported" && (
+            <span className={`h-6 w-11 rounded-full p-0.5 transition-colors ${pushState === "enabled" ? "bg-gg-green" : "bg-gg-line"}`}>
+              <motion.span layout className="block h-5 w-5 rounded-full bg-white shadow" style={{ marginLeft: pushState === "enabled" ? 20 : 0 }} />
+            </span>
+          )}
+        </button>
+      )}
+
       {unread > 0 && (
         <button
           onClick={markAllRead}

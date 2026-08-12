@@ -63,6 +63,11 @@ export const endpoints = {
   notifications: () => api.get("/notifications").then((r) => r.data),
   readAllNotifications: () => api.post("/notifications/read-all").then((r) => r.data),
   readNotification: (id) => api.post(`/notifications/${id}/read`).then((r) => r.data),
+  // push
+  pushKey: () => api.get("/push/public-key").then((r) => r.data),
+  pushSubscribe: (sub) => api.post("/push/subscribe", sub).then((r) => r.data),
+  pushUnsubscribe: (endpoint) => api.post("/push/unsubscribe", { endpoint }).then((r) => r.data),
+  pushTest: () => api.post("/push/test").then((r) => r.data),
 };
 
 export const fileSrc = (path) => `${BASE}/api/files/${path}?auth=${tokenStore.get()}`;
