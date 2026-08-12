@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gg-green: #00c27a;
+  --gg-charcoal: #1a1f23;
+  --gg-gold: #ffc14d;
+  --gg-mint: #e6f7f0;
+  --gg-canvas: #f5faf7;
+  --app-max: 460px;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0e1214;
+  font-family: "Manrope", system-ui, sans-serif;
+  color: var(--gg-charcoal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+/* ---- App phone shell ---- */
+.app-shell {
+  position: relative;
+  width: 100%;
+  max-width: var(--app-max);
+  min-height: 100dvh;
+  margin: 0 auto;
+  background: var(--gg-canvas);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+@media (min-width: 480px) {
+  body {
+    background: radial-gradient(circle at 30% 10%, #12332a 0%, #0e1214 55%);
+  }
+  .app-shell {
+    min-height: 100dvh;
+  }
+}
+
+/* scrollable content area, leaving space for bottom nav */
+.screen-scroll {
+  height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 108px;
+  scrollbar-width: none;
+}
+.screen-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 12px);
+}
+
+/* ---- Type helpers ---- */
+.font-display {
+  font-family: "Sora", system-ui, sans-serif;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.tracking-label {
+  letter-spacing: 0.14em;
+}
+
+/* ---- Surfaces ---- */
+.card {
+  background: #ffffff;
+  border: 1px solid var(--gg-line, #e7eeea);
+  border-radius: 24px;
+  box-shadow: 0 1px 2px rgba(26, 31, 35, 0.04), 0 12px 30px rgba(26, 31, 35, 0.05);
+}
+
+.glass-nav {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.hero-dark {
+  background:
+    radial-gradient(120% 120% at 85% -10%, rgba(0, 194, 122, 0.35) 0%, rgba(0, 194, 122, 0) 45%),
+    linear-gradient(160deg, #22282d 0%, #1a1f23 60%, #14181b 100%);
+}
+
+.mesh-canvas {
+  background:
+    radial-gradient(90% 60% at 12% 0%, rgba(0, 194, 122, 0.10) 0%, rgba(0, 194, 122, 0) 40%),
+    radial-gradient(70% 50% at 100% 8%, rgba(255, 193, 77, 0.10) 0%, rgba(255, 193, 77, 0) 45%),
+    var(--gg-canvas);
+}
+
+/* road dashes animation for drive session */
+.road-line {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.85) 0 22px,
+    transparent 22px 44px
+  );
+}
+
+/* shimmer skeleton */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #eef4f1;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+::selection {
+  background: rgba(0, 194, 122, 0.22);
+}

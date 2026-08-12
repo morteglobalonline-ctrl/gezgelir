@@ -1,0 +1,11 @@
+{
+  "short_name": "GezGelir",
+  "name": "GezGelir — Hareket Et, Kazan",
+  "icons": [
+    { "src": "app_icon.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#00C27A",
+  "background_color": "#F5FAF7"
+}
