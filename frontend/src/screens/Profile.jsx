@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
   User, Car, FileText, Landmark, Bell, ShieldCheck, LifeBuoy, ScrollText, Info,
   ChevronRight, CheckCircle2, CalendarDays, Navigation, Coins, LogOut, BadgeCheck,
 } from "lucide-react";
 import { useAppData } from "../context/AppData";
+import { useAuth } from "../context/Auth";
 import { Wordmark, Mascot, LogoFull } from "../components/Brand";
 import { Skeleton } from "../components/ui/Primitives";
 import Sheet from "../components/ui/Sheet";
@@ -35,6 +37,8 @@ function SummaryStat({ icon: Icon, label, value }) {
 
 export default function Profile() {
   const { driver } = useAppData();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [sheet, setSheet] = useState(null);
   const m = driver?.membership;
 
@@ -120,7 +124,7 @@ export default function Profile() {
           return (
             <button
               key={item.label}
-              onClick={() => setSheet(item.label)}
+              onClick={() => (item.label === "Banka Bilgilerim" ? navigate("/cuzdan") : setSheet(item.label))}
               className={`w-full flex items-center gap-3 px-4 py-3.5 active:bg-gg-canvas transition-colors ${
                 i !== MENU.length - 1 ? "border-b border-gg-line" : ""
               }`}
@@ -140,7 +144,7 @@ export default function Profile() {
       <motion.button
         variants={riseItem}
         whileTap={{ scale: 0.98 }}
-        onClick={() => setSheet("Çıkış Yap")}
+        onClick={logout}
         className="w-full mt-4 card p-3.5 flex items-center justify-center gap-2 text-[14px] font-700 text-gg-ink-2"
         data-testid="signout-button"
       >

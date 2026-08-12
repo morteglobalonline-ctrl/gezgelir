@@ -29,6 +29,15 @@ Emotional promise: **Hareket Et, Kazan.** Core loop: Join → approved → drive
 - Backend endpoints: config, driver/me, trips (+detail), earnings/summary, earnings/series, wallet, wallet/transactions, drive/stop, wallet/withdraw. Auto-seed demo data on startup.
 - Testing: iteration_1 — backend 15/15 pytest pass, frontend 100% flows pass.
 
+## Implemented — Iteration 2 (2026-06-12)
+- **Auth (JWT, email+password)**: register/login/me, bcrypt hashing, deterministic email-based brute-force lockout (429 after 5), Bearer token in localStorage. All data endpoints now require auth and are **scoped per user** (`user_id`). Demo account `demo@gezgelir.com` / `demo1234` → Ömer. New users get seeded starter data. Branded Auth screen + logout.
+- **Bank accounts (real)**: `/api/bank-accounts` CRUD (add/edit/delete/set-default, first auto-default, safe default reassignment). Managed from Cüzdan bank sheet.
+- **Withdrawal lifecycle**: atomic conditional debit (no overdraw), transaction status computed from time — Beklemede→İşleniyor→Tamamlandı. Withdraw sheet lets user pick target account. (Money movement stays DEMO/MOCKED.)
+- **Route map**: trips carry `points` (lat/lng); trip-detail sheet shows a Leaflet/OpenStreetMap (CartoDB tiles) green polyline preview. `react-leaflet`.
+- **Gamification (server-driven)**: `/api/gamification` → level+progress+next, active multiplier, 3 weekly missions (km/trips/earning) with progress, 6 badges with earned state. UI: Görevler + Rozetler on Kazanç, multiplier banner on Home.
+- **Config extended**: multiplier, missions, badges now in `/api/config` (configurable).
+- Testing: iteration_2 — backend 39/39 pytest pass; all critical frontend flows pass. Fixed: onboarding-skip tap obstruction, deterministic lockout, atomic withdraw.
+
 ## MOCKED / Demo
 - Wallet withdrawal & drive-stop update MongoDB state but there is **NO real bank/payment processing**. Balances/transactions are illustrative.
 - No authentication in this iteration; demo driver auto-loads.

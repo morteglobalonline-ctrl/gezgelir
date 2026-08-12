@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Navigation, Gauge, Route as RouteIcon, Trophy, Target, Sparkles, TrendingUp } from "lucide-react";
+import { Navigation, Gauge, Route as RouteIcon, Trophy, Target, Sparkles, TrendingUp,
+  Flag, Medal, Coins, Star, Gift, Lock, CheckCircle2, Zap } from "lucide-react";
 import { endpoints } from "../lib/api";
 import { useAppData } from "../context/AppData";
 import { Wordmark, Mascot } from "../components/Brand";
@@ -22,6 +23,8 @@ const TITLES = {
   total: "Toplam Kazancın",
 };
 
+const BADGE_ICONS = { flag: Flag, route: RouteIcon, medal: Medal, coins: Coins, star: Star, target: Target };
+
 function Metric({ icon: Icon, label, value }) {
   return (
     <motion.div variants={riseItem} className="card p-4">
@@ -39,6 +42,7 @@ export default function Earnings() {
   const [range, setRange] = useState("month");
   const [data, setData] = useState(null);
   const [series, setSeries] = useState([]);
+  const [game, setGame] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -47,6 +51,7 @@ export default function Earnings() {
 
   useEffect(() => {
     endpoints.series("week").then((d) => setSeries(d.series)).catch(() => {});
+    endpoints.gamification().then(setGame).catch(() => {});
   }, []);
 
   const membership = driver?.membership;
@@ -189,6 +194,78 @@ export default function Earnings() {
           </div>
         </motion.div>
       )}
+
+      {/* Missions / Görevler */}
+      <div className="mt-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Gift size={18} className="text-gg-green-700" />
+          <h3 className="font-display font-700 text-[17px] text-gg-ink">Haftalık Görevler</h3>
+        </div>
+        {!game && <Skeleton className="h-24" />}
+        <div className="space-y-3">
+          {game?.missions?.map((mn) => (
+            <motion.div key={mn.id} variants={riseItem} className="card p-4" data-testid="mission-item">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-700 text-[14px] text-gg-ink">{mn.title}</p>
+                    {mn.completed && <CheckCircle2 size={15} className="text-gg-green" />}
+                  </div>
+                  <p className="text-[12px] text-gg-ink-2 mt-0.5">{mn.desc}</p>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#FFF3DC] px-2.5 py-1 text-[11px] font-700 text-gg-gold-600 shrink-0">
+                  <Sparkles size={11} /> {money(mn.reward)}
+                </span>
+              </div>
+              <div className="mt-3">
+                <ProgressBar value={mn.progress} tone={mn.completed ? "green" : "green"} />
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-[12px] font-700 text-gg-ink tnum">
+                    {mn.type === "earning" ? money(mn.current) : (mn.type === "trips" ? intNum(mn.current) : kmNum(mn.current))}
+                    {" / "}
+                    {mn.type === "earning" ? money(mn.target) : (mn.type === "trips" ? intNum(mn.target) + " sürüş" : intNum(mn.target) + " km")}
+                  </span>
+                  <span className="text-[11px] font-700 text-gg-green-700">%{Math.round(mn.progress * 100)}</span>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      {/* Badges / Rozetler */}
+      <div className="mt-6 mb-2">
+        <div className="flex items-center gap-2 mb-3">
+          <Medal size={18} className="text-gg-gold-600" />
+          <h3 className="font-display font-700 text-[17px] text-gg-ink">Rozetlerin</h3>
+        </div>
+        {!game && <Skeleton className="h-24" />}
+        {game && (
+          <div className="grid grid-cols-3 gap-3">
+            {game.badges.map((b) => {
+              const Icon = BADGE_ICONS[b.icon] || Star;
+              return (
+                <motion.div
+                  key={b.id}
+                  variants={riseItem}
+                  className={`card p-3 flex flex-col items-center text-center ${b.earned ? "" : "opacity-60"}`}
+                  data-testid={`badge-${b.id}`}
+                >
+                  <div
+                    className={`grid place-items-center h-12 w-12 rounded-2xl mb-2 ${
+                      b.earned ? "bg-gg-gold text-white shadow-soft" : "bg-gg-canvas text-gg-ink-3 border border-gg-line"
+                    }`}
+                  >
+                    {b.earned ? <Icon size={22} strokeWidth={2.2} /> : <Lock size={18} />}
+                  </div>
+                  <p className="text-[11.5px] font-700 text-gg-ink leading-tight">{b.title}</p>
+                  <p className="text-[10px] text-gg-ink-3 mt-0.5 leading-tight">{b.desc}</p>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }

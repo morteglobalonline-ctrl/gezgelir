@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Navigation, Gauge, CalendarDays, Clock3, ChevronRight, Timer } from "lucide-react";
+import { Bell, Play, Navigation, Gauge, CalendarDays, Clock3, ChevronRight, Timer, Zap } from "lucide-react";
 import { endpoints } from "../lib/api";
 import { useAppData } from "../context/AppData";
 import { Wordmark, Mascot } from "../components/Brand";
@@ -103,6 +103,25 @@ export default function Home() {
           Sürüşe Başla
         </Button>
       </motion.div>
+
+      {/* Active multiplier */}
+      {config?.multiplier?.active && (
+        <motion.div
+          variants={riseItem}
+          className="mt-4 flex items-center gap-3 rounded-2xl border border-[#F3E2BC] bg-[#FFF7E6] p-3.5"
+          data-testid="multiplier-banner"
+        >
+          <div className="grid place-items-center h-9 w-9 rounded-xl bg-gg-gold text-white shrink-0">
+            <Zap size={18} strokeWidth={2.6} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-700 text-[13.5px] text-gg-ink">
+              {config.multiplier.label} · x{String(config.multiplier.factor).replace(".", ",")}
+            </p>
+            <p className="text-[12px] text-gg-ink-2 truncate">{config.multiplier.note}</p>
+          </div>
+        </motion.div>
+      )}
 
       {/* Quick metrics */}
       <div className="grid grid-cols-2 gap-3 mt-5">

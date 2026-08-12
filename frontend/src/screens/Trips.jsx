@@ -5,6 +5,7 @@ import { endpoints } from "../lib/api";
 import { Wordmark } from "../components/Brand";
 import { StatusBadge, Skeleton, RangeTabs, BarChart } from "../components/ui/Primitives";
 import Sheet from "../components/ui/Sheet";
+import RouteMap from "../components/ui/RouteMap";
 import { money, km, kmNum, intNum, dateLabel, dateFull, timeShort } from "../lib/format";
 import { staggerParent, riseItem, ENTER_INITIAL } from "../lib/motion";
 
@@ -167,6 +168,14 @@ export default function Trips() {
       >
         {selected && (
           <div>
+            {selected.points?.length > 1 && (
+              <div className="mb-4">
+                <RouteMap points={selected.points} />
+                <p className="mt-2 text-[12px] text-gg-ink-3 flex items-center gap-1.5">
+                  <MapPin size={13} className="text-gg-green" /> {selected.route_label}
+                </p>
+              </div>
+            )}
             <div className="rounded-2xl bg-gg-canvas border border-gg-line p-4 mb-4 text-center">
               <p className="text-[12px] font-600 text-gg-ink-3">Kazanç</p>
               <p className="font-display font-800 text-[30px] text-gg-green-700 tnum">

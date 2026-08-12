@@ -35,7 +35,7 @@ export default function Onboarding({ onDone }) {
 
   return (
     <div className="absolute inset-0 z-40 mesh-canvas flex flex-col" data-testid="onboarding-screen">
-      <div className="safe-top flex items-center justify-between px-6 pt-3">
+      <div className="safe-top relative z-20 flex items-center justify-between px-6 pt-3">
         <Wordmark style={{ height: 24 }} />
         <button
           onClick={onDone}
@@ -46,7 +46,7 @@ export default function Onboarding({ onDone }) {
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-8 -mt-6">
+      <div className="flex-1 flex flex-col items-center justify-center px-8 -mt-6 pointer-events-none">
         <AnimatePresence mode="wait">
           <motion.div
             key={i}

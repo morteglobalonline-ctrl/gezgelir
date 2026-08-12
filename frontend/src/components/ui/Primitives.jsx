@@ -73,6 +73,7 @@ export function SectionTitle({ children, action, onAction }) {
 const STATUS_MAP = {
   Onaylandı: { bg: "bg-gg-mint", text: "text-gg-green-700", dot: "bg-gg-green" },
   İşleniyor: { bg: "bg-[#FFF3DC]", text: "text-[#B9791A]", dot: "bg-gg-gold" },
+  Beklemede: { bg: "bg-[#EEF2F0]", text: "text-gg-ink-2", dot: "bg-gg-ink-3" },
   İnceleniyor: { bg: "bg-[#EEF2F0]", text: "text-gg-ink-2", dot: "bg-gg-ink-3" },
   Düzeltilmiş: { bg: "bg-[#EAF6FF]", text: "text-[#2C7AA6]", dot: "bg-[#4AA3D5]" },
   Tamamlandı: { bg: "bg-gg-mint", text: "text-gg-green-700", dot: "bg-gg-green" },

@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { AuthProvider, useAuth } from "./context/Auth";
 import { AppDataProvider } from "./context/AppData";
 import Splash from "./components/Splash";
 import Onboarding from "./components/Onboarding";
+import Auth from "./screens/Auth";
 import BottomNav from "./components/BottomNav";
 import Home from "./screens/Home";
 import Trips from "./screens/Trips";
@@ -15,12 +17,7 @@ import { pageVariants, ENTER_INITIAL } from "./lib/motion";
 
 function Page({ children }) {
   return (
-    <motion.div
-      variants={pageVariants}
-      initial={ENTER_INITIAL}
-      animate="animate"
-      exit="exit"
-    >
+    <motion.div variants={pageVariants} initial={ENTER_INITIAL} animate="animate" exit="exit">
       {children}
     </motion.div>
   );
@@ -28,16 +25,13 @@ function Page({ children }) {
 
 function Shell() {
   const location = useLocation();
-  const isDrive = location.pathname === "/surus";
-
-  if (isDrive) {
+  if (location.pathname === "/surus") {
     return (
       <Routes location={location}>
         <Route path="/surus" element={<DriveSession />} />
       </Routes>
     );
   }
-
   return (
     <>
       <div className="screen-scroll">
@@ -57,40 +51,46 @@ function Shell() {
   );
 }
 
-export default function App() {
-  const [phase, setPhase] = useState(
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("skip") === "1"
-      ? "app"
-      : "splash"
+function Root() {
+  const { user, checking } = useAuth();
+  const skip = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("skip") === "1";
+  const [splashDone, setSplashDone] = useState(skip);
+  const [onboarded, setOnboarded] = useState(
+    () => skip || localStorage.getItem("gg_onboarded") === "1"
   );
-
-  useEffect(() => {
-    if (phase !== "app") return;
-  }, [phase]);
-
-  const finishSplash = () => {
-    const onboarded = localStorage.getItem("gg_onboarded") === "1";
-    setPhase(onboarded ? "app" : "onboarding");
-  };
 
   const finishOnboarding = () => {
     localStorage.setItem("gg_onboarded", "1");
-    setPhase("app");
+    setOnboarded(true);
   };
 
+  const showSplash = !splashDone || checking;
+
+  return (
+    <div className="app-shell">
+      <AnimatePresence>
+        {showSplash && <Splash key="splash" onDone={() => setSplashDone(true)} />}
+      </AnimatePresence>
+
+      {!showSplash && !user && <Auth />}
+
+      {!showSplash && user && !onboarded && <Onboarding onDone={finishOnboarding} />}
+
+      {!showSplash && user && onboarded && (
+        <AppDataProvider>
+          <Shell />
+        </AppDataProvider>
+      )}
+    </div>
+  );
+}
+
+export default function App() {
   return (
     <BrowserRouter>
-      <AppDataProvider>
-        <div className="app-shell">
-          <AnimatePresence>
-            {phase === "splash" && <Splash key="splash" onDone={finishSplash} />}
-          </AnimatePresence>
-
-          {phase === "onboarding" && <Onboarding onDone={finishOnboarding} />}
-
-          {phase === "app" && <Shell />}
-        </div>
-      </AppDataProvider>
+      <AuthProvider>
+        <Root />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
